@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 
+@available(macOS 14, *)
 final class MenuViewController: NSViewController {
     @IBOutlet private weak var tableView: NSTableView! {
         didSet {
@@ -29,7 +30,7 @@ final class MenuViewController: NSViewController {
         tableView.selectRowIndexes(indexSet as IndexSet, byExtendingSelection: false)
     }
 }
-
+@available(macOS 14, *)
 extension MenuViewController: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
         return menus.count
@@ -45,7 +46,7 @@ extension MenuViewController: NSTableViewDataSource {
         splitViewController.splitViewItems[1] = NSSplitViewItem(viewController: menus[tableView.selectedRow].factory())
     }
 }
-
+@available(macOS 14, *) 
 extension MenuViewController: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let identifier = tableColumn?.identifier, let cellView = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView else {

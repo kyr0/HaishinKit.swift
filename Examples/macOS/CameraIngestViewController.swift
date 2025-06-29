@@ -2,16 +2,36 @@ import AVFoundation
 import Cocoa
 import HaishinKit
 import VideoToolbox
+import SRTHaishinKit
 
+@available(macOS 14, *)
 extension NSPopUpButton {
     fileprivate func present(mediaType: AVMediaType) {
-        let devices = AVCaptureDevice.devices(for: mediaType)
-        devices.forEach {
-            self.addItem(withTitle: $0.localizedName)
+        
+        // --- choose which kinds of hardware you care about ---
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,   // built-in FaceTime / iSight
+            .continuityCamera,
+            .deskViewCamera,
+            .external,
+            .microphone,
+        ]
+
+        // --- discovery session replaces the deprecated `devices(for:)` ---
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: deviceTypes,
+            mediaType: mediaType,          // .video or .audio
+            position: .unspecified         // front / back if you want to filter
+        )
+
+        // --- populate your UI just as before ---
+        for device in discovery.devices {
+            addItem(withTitle: device.localizedName)
         }
     }
 }
 
+@available(macOS 14, *)
 final class CameraIngestViewController: NSViewController {
     @IBOutlet private weak var lfView: MTHKView!
     @IBOutlet private weak var audioPopUpButton: NSPopUpButton!
@@ -34,6 +54,7 @@ final class CameraIngestViewController: NSViewController {
             videoMixerSettings.mode = .offscreen
             await mixer.setVideoMixerSettings(videoMixerSettings)
             session = await SessionBuilderFactory.shared.make(Preference.default.makeURL())?.build()
+            
             guard let session else {
                 return
             }
@@ -83,18 +104,43 @@ final class CameraIngestViewController: NSViewController {
         Task {
             try? await mixer.attachAudio(DeviceUtil.device(withLocalizedName: audioPopUpButton.titleOfSelectedItem!, mediaType: .audio))
 
-            var audios = AVCaptureDevice.devices(for: .audio)
-            audios.removeFirst()
-            if let device = audios.first, await mixer.isMultiTrackAudioMixingEnabled {
-                try? await mixer.attachAudio(device, track: 1)
-            }
+            // ---------- AUDIO ----------
+               let audioDiscovery = AVCaptureDevice.DiscoverySession(
+                   deviceTypes: [.microphone],          // all mics (built-in + USB)
+                   mediaType: .audio,
+                   position: .unspecified)
 
-            try? await mixer.attachVideo(DeviceUtil.device(withLocalizedName: cameraPopUpButton.titleOfSelectedItem!, mediaType: .video), track: 0)
-            var videos = AVCaptureDevice.devices(for: .video)
-            videos.removeFirst()
-            if let device = videos.first {
-                try? await mixer.attachVideo(device, track: 1)
-            }
+               var microphones = audioDiscovery.devices
+               if !microphones.isEmpty { microphones.removeFirst() }   // skip primary mic
+
+               if let mic2 = microphones.first,
+                  await mixer.isMultiTrackAudioMixingEnabled {
+                   try? await mixer.attachAudio(mic2, track: 1)
+               }
+
+               // ---------- PRIMARY VIDEO (selected from UI) ----------
+               if let primaryCam =
+                   DeviceUtil.device(withLocalizedName: cameraPopUpButton.titleOfSelectedItem!,
+                                     mediaType: .video) {
+                   try? await mixer.attachVideo(primaryCam, track: 0)
+               }
+
+               // ---------- SECONDARY VIDEO ----------
+               var videoTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
+
+                videoTypes += [.external, .continuityCamera, .deskViewCamera]
+
+               let videoDiscovery = AVCaptureDevice.DiscoverySession(
+                   deviceTypes: videoTypes,
+                   mediaType: .video,
+                   position: .unspecified)
+
+               var cameras = videoDiscovery.devices
+               if !cameras.isEmpty { cameras.removeFirst() }           // skip primary cam
+
+               if let cam2 = cameras.first {
+                   try? await mixer.attachVideo(cam2, track: 1)
+               }
         }
     }
 
@@ -139,6 +185,7 @@ final class CameraIngestViewController: NSViewController {
     }
 }
 
+@available(macOS 14, *)
 extension CameraIngestViewController: ScreenDelegate {
     nonisolated func screen(_ screen: Screen, willLayout time: CMTime) {
         Task { @ScreenActor in
